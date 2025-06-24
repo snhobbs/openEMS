@@ -17,6 +17,7 @@
 #
 
 from libcpp.string cimport string
+from libcpp.vector cimport vector
 from libcpp cimport bool
 
 from CSXCAD.CSXCAD cimport _ContinuousStructure, ContinuousStructure
@@ -24,6 +25,8 @@ from CSXCAD.CSXCAD cimport _ContinuousStructure, ContinuousStructure
 cdef extern from "openEMS/openems.h":
     cdef cppclass _openEMS "openEMS":
         _openEMS() nogil except +
+        void Reset()
+
         void SetNumberOfTimeSteps(unsigned int val)
         void SetCSX(_ContinuousStructure* csx)
 
@@ -39,7 +42,7 @@ cdef extern from "openEMS/openems.h":
         void SetTimeStepFactor(double val)
         void SetMaxTime(double val)
 
-        void SetNumberOfThreads(int val)
+        void SetLibraryArguments(vector[string] allOptions) except +
 
         void Set_BC_Type(int idx, int _type)
         int Get_BC_Type(int idx)
@@ -54,13 +57,6 @@ cdef extern from "openEMS/openems.h":
         void SetCustomExcite(string _str, double f0, double fmax)
 
         void SetAbort(bool val)
-
-        void SetVerboseLevel(int level)
-        void DebugMaterial() nogil
-        void DebugPEC()      nogil
-        void DebugOperator() nogil
-        void DebugBox()      nogil
-        void DebugCSX()      nogil
 
         int SetupFDTD() nogil
         void RunFDTD()  nogil

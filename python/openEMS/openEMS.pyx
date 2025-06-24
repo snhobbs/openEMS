@@ -20,6 +20,7 @@ import os, sys, shutil
 import numpy as np
 cimport openEMS
 from openEMS import ports, nf2ff, automesh
+from pathlib import Path
 
 from CSXCAD.Utilities import GetMultiDirs
 
@@ -111,6 +112,9 @@ cdef class openEMS:
         del self.thisptr
         if self.__CSX is not None:
             self.__CSX.thisptr = NULL
+
+    def Reset(self):
+        self.thisptr.Reset()
 
     def SetNumberOfTimeSteps(self, val):
         """ SetNumberOfTimeSteps(val)
@@ -458,8 +462,38 @@ cdef class openEMS:
                     continue
                 grid.AddLine(n, hint[n])
 
-    def Run(self, sim_path, cleanup=False,setup_only=False, debug_material=False, debug_pec=False,
-            debug_operator=False, debug_boxes=False, debug_csx=False, verbose=None, **kw):
+    def _SetLibraryArguments(self, arguments):
+        allOptions = []
+        integerOptions = ["verbose", "numthreads"]
+
+        for key, val in arguments.items():
+            key = key.replace("_", "-")
+            key = key.replace("setup-only", "no-simulation")
+
+            # Using 1/0 instead of True/False is tolerated, but only
+            # if the option is not an integer (which is ambiguous)
+            if key.lower() not in integerOptions:
+                if val == 1:
+                    val = True
+                elif val == 0:
+                    val = False
+
+            if val is True:
+                # "True" boolean options are implicit
+                opt = "%s" % key
+            elif val is False:
+                # "False" boolean options are ignored
+                opt = ""
+            elif (val is not True) and (val is not False):
+                # integer and string options are explicit
+                opt = "%s=%s" % (key, val)
+
+            allOptions.append(opt.encode("UTF-8"))
+
+        cdef vector[string] allOptionsBuffer = allOptions
+        self.thisptr.SetLibraryArguments(allOptionsBuffer)
+
+    def Run(self, sim_path, cleanup=False, setup_only=False, **kw):
         """ Run(sim_path, cleanup=False, setup_only=False, verbose=None)
 
         Run the openEMS FDTD simulation.
@@ -467,10 +501,27 @@ cdef class openEMS:
         :param sim_path: str -- path to run in and create result data
         :param cleanup: bool -- remove existing sim_path to cleanup old results
         :param setup_only: bool -- only perform FDTD setup, do not run simulation
-        :param verbose: int -- set the openEMS verbosity level 0..3
 
-        Additional keyword parameter:
-        :param numThreads: int -- set the number of threads (default 0 --> max)
+        One can also pass almost all command-line options supported by the main
+        openEMS executable via keyword parameters (replace dashes with
+        underscores). Supported options may vary from versions to versions,
+        see `./openEMS --help`). Examples are:
+
+        * verbose (int) -- set the openEMS verbosity level 0..3
+        * numThreads (int) -- set the number of threads (default 0 --> max)
+        * disable_dumps (bool) -- disable all field dumps for faster simulation
+        * debug_material (bool) - dump material distribution to a vtk file for
+          debugging.
+        * debug_PEC (bool) - dump metal distribution to a vtk file for debugging
+        * debug_operator (bool) - dump operator to vtk file for debugging
+        * debug_boxes (bool) - Dump e.g. probe boxes to vtk file for debugging
+        * debug_CSX (bool) - Write CSX geometry file to debugCSX.xml
+        * dump_statistics (bool) - dump simulation statistics to
+          `openEMS_run_stats.txt` and `openEMS_stats.txt`
+        * showProbeDiscretization (bool) - show probe discretization information
+          for debugging
+        * nativeFieldDumps (bool) - dump all fields using the native field
+          components
         """
         if cleanup and os.path.exists(sim_path):
             shutil.rmtree(sim_path, ignore_errors=True)
@@ -478,26 +529,12 @@ cdef class openEMS:
         if not os.path.exists(sim_path):
             os.mkdir(sim_path)
         os.chdir(sim_path)
-        if verbose is not None:
-            self.thisptr.SetVerboseLevel(verbose)
-        if debug_material:
-            with nogil:
-                self.thisptr.DebugMaterial()
-        if debug_pec:
-            with nogil:
-                self.thisptr.DebugPEC()
-        if debug_operator:
-            with nogil:
-                self.thisptr.DebugOperator()
-        if debug_boxes:
-            with nogil:
-                self.thisptr.DebugBox()
-        if debug_csx:
-            with nogil:
-                self.thisptr.DebugCSX()
-        if 'numThreads' in kw:
-            self.thisptr.SetNumberOfThreads(int(kw['numThreads']))
-        assert os.getcwd() == os.path.realpath(sim_path)
+
+        self._SetLibraryArguments(kw)
+
+        if Path(os.getcwd()).resolve() != Path(sim_path).resolve():
+            raise RuntimeError('Current working directory is different from `sim_path`. If you encounter this error, please report it to the developers, because it should never happen in normal conditions, it is not your fault. ')
+
         _openEMS.WelcomeScreen()
         cdef int EC
         with nogil:
